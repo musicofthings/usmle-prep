@@ -1,0 +1,31 @@
+name = "usmle-question-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "production"
+# Set ANTHROPIC_API_KEY via: wrangler secret put ANTHROPIC_API_KEY
+# Set ALLOWED_ORIGIN via: wrangler secret put ALLOWED_ORIGIN
+# e.g. ALLOWED_ORIGIN = "https://usmle-prep.pages.dev"
+
+[[kv_namespaces]]
+binding = "QUESTION_CACHE"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+# Create with: wrangler kv:namespace create QUESTION_CACHE
+
+[[d1_databases]]
+binding = "DB"
+database_name = "usmle-sessions"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+# Create with: wrangler d1 create usmle-sessions
+
+[ai]
+binding = "AI"
+# Optional: Cloudflare Workers AI binding (for fallback generation)
+
+# AI Gateway is configured via the ANTHROPIC_GATEWAY_URL secret
+# Format: https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_name}/anthropic
+
+[observability]
+enabled = true

@@ -1,0 +1,18 @@
+{
+  "name": "usmle-ai-exam-prep",
+  "version": "1.0.0",
+  "description": "AI-powered USMLE exam prep — Cloudflare Workers + Pages + D1",
+  "scripts": {
+    "setup":   "bash setup.sh",
+    "dev":     "wrangler dev",
+    "deploy":  "wrangler deploy",
+    "db:init": "wrangler d1 execute usmle-sessions --file schema.sql --remote",
+    "db:stats":"wrangler d1 execute usmle-sessions --command \"SELECT * FROM v_step_stats\" --remote",
+    "db:hard": "wrangler d1 execute usmle-sessions --command \"SELECT * FROM v_subject_stats ORDER BY pct_correct ASC LIMIT 10\" --remote",
+    "logs":    "wrangler tail",
+    "test":    "curl -s $npm_config_worker/health | python3 -m json.tool"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

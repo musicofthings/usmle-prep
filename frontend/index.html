@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>USMLE AI Exam Prep</title>
+<meta name="description" content="AI-powered USMLE exam prep — Steps 1, 2CK & 3. Questions generated live by Claude.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;1,400&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#f5f6f8;color:#111;min-height:100vh}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.fade{animation:fadein .3s ease both}
+.spin{animation:spin .75s linear infinite}
+button{font-family:inherit;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script type="text/babel">
+const {useState,useEffect,useRef}=React;
+
+// ── Configure this after Worker deploy ──────────────────────────────────────
+const API_BASE="https://usmle-question-api.YOUR_SUBDOMAIN.workers.dev";
+// ────────────────────────────────────────────────────────────────────────────
+
+const STORAGE_KEY="usmle_user_api_key";
+
+const STEPS={
+  "Step 1":{tag:"Basic Sciences",accent:"#1d4ed8",lite:"#dbeafe",muted:"#eff6ff",
+    subjects:["Biochemistry","Molecular Biology","Microbiology","Immunology","Pathology","Pharmacology","Anatomy","Physiology","Behavioral Science","Genetics"]},
+  "Step 2 CK":{tag:"Clinical Knowledge",accent:"#059669",lite:"#a7f3d0",muted:"#ecfdf5",
+    subjects:["Internal Medicine","Surgery","OB/GYN","Pediatrics","Psychiatry","Neurology","Emergency Medicine","Preventive Medicine","Dermatology","Rheumatology"]},
+  "Step 3":{tag:"Clinical Management",accent:"#7c3aed",lite:"#ddd6fe",muted:"#f5f3ff",
+    subjects:["Ambulatory Medicine","Inpatient Management","Emergency Medicine","Biostatistics & Epi","Patient Safety","Geriatrics","Women's Health","Pharmacotherapy"]}
+};
+
+const fmt=s=>`${Math.floor(s/60)}:${(s%60).toString().padStart(2,"0")}`;
+const Letters=["A","B","C","D","E"];
+
+// ── API Key Settings Panel ──────────────────────────────────────────────────
+function ApiKeyPanel({onClose,onSave,currentKey,hasServerKey}){
+  const[val,setVal]=useState(currentKey||"");
+  const[show,setShow]=useState(false);
+  const[status,setStatus]=useState(null);
+
+  function save(){
+    if(val&&!val.startsWith("sk-ant-")){setStatus("error");return;}
+    try{if(val)localStorage.setItem(STORAGE_KEY,val);else localStorage.removeItem(STORAGE_KEY);}catch{}
+    onSave(val||null);
+    setStatus("saved");
+    setTimeout(()=>{setStatus(null);onClose();},900);
+  }
+  function clear(){
+    setVal("");
+    try{localStorage.removeItem(STORAGE_KEY);}catch{}
+    onSave(null);
+    setStatus("cleared");
+    setTimeout(()=>{setStatus(null);onClose();},700);
+  }
+
+  return(
+    <div className="fade" style={{background:"#fff",borderRadius:16,border:"1.5px solid #e5e7eb",padding:"20px 22px",marginBottom:16,boxShadow:"0 4px 20px rgba(0,0,0,.08)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:14,fontWeight:600,color:"#111827"}}>Anthropic API key</div>
+          <div style={{fontSize:12,color:"#9ca3af",marginTop:2}}>Stored locally in your browser only</div>
+        </div>
+        <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,color:"#9ca3af",padding:"0 4px",lineHeight:1}}>×</button>
+      </div>
+
+      {hasServerKey&&!currentKey&&(
+        <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#166534"}}>
+          A shared key is already active — you can use the app without your own key, or add yours below to use your personal quota.
+        </div>
+      )}
+      {!hasServerKey&&!currentKey&&(
+        <div style={{background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#92400e"}}>
+          No shared key is configured. You need your own Anthropic API key to use this app.
+        </div>
+      )}
+
+      <div style={{position:"relative",marginBottom:10}}>
+        <input
+          type={show?"text":"password"}
+          value={val}
+          onChange={e=>setVal(e.target.value)}
+          placeholder="sk-ant-api03-..."
+          style={{width:"100%",padding:"10px 44px 10px 12px",borderRadius:8,border:`1.5px solid ${status==="error"?"#fca5a5":"#e5e7eb"}`,fontSize:13,fontFamily:"monospace",background:"#fafafa",color:"#111"}}
+        />
+        <button onClick={()=>setShow(s=>!s)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",fontSize:12,color:"#9ca3af",padding:"2px 4px"}}>{show?"Hide":"Show"}</button>
+      </div>
+      {status==="error"&&<div style={{fontSize:12,color:"#dc2626",marginBottom:8}}>Key must start with sk-ant-</div>}
+
+      <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>
+        Get your key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style={{color:"#1d4ed8"}}>console.anthropic.com</a> — free credits available for new accounts.
+      </div>
+
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={save} style={{flex:1,padding:"9px",background:status==="saved"?"#22c55e":"#1d4ed8",color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:600,transition:"background .2s"}}>
+          {status==="saved"?"✓ Saved":"Save key"}
+        </button>
+        {currentKey&&<button onClick={clear} style={{padding:"9px 16px",background:"#fff",color:"#6b7280",border:"1px solid #e5e7eb",borderRadius:8,fontSize:13,fontWeight:500}}>Clear</button>}
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ────────────────────────────────────────────────────────────────
+export default function App(){
+  const[screen,setScreen]=useState("config");
+  const[step,setStep]=useState("Step 1");
+  const[selSubj,setSelSubj]=useState(new Set());
+  const[diff,setDiff]=useState("Mixed");
+  const[qTotal,setQTotal]=useState(10);
+  const[qIdx,setQIdx]=useState(0);
+  const[q,setQ]=useState(null);
+  const[loading,setLoading]=useState(false);
+  const[err,setErr]=useState(null);
+  const[sel,setSel]=useState(null);
+  const[elapsed,setElapsed]=useState(0);
+  const[session,setSession]=useState([]);
+  const[results,setResults]=useState([]);
+  const[reviewMode,setReviewMode]=useState(false);
+  const[reviewIdx,setReviewIdx]=useState(0);
+  const[userApiKey,setUserApiKey]=useState(null);
+  const[hasServerKey,setHasServerKey]=useState(null);
+  const[showKeyPanel,setShowKeyPanel]=useState(false);
+  const[keyRequired,setKeyRequired]=useState(false);
+  const timerRef=useRef(null);
+  const cfg=STEPS[step];
+
+  // Load stored key + check server config
+  useEffect(()=>{
+    try{const k=localStorage.getItem(STORAGE_KEY);if(k)setUserApiKey(k);}catch{}
+    fetch(`${API_BASE}/api/config`).then(r=>r.json()).then(c=>{
+      setHasServerKey(c.hasServerKey);
+      setKeyRequired(!c.hasServerKey);
+    }).catch(()=>{});
+  },[]);
+
+  useEffect(()=>{
+    if(screen==="quiz"&&!loading&&sel===null){
+      timerRef.current=setInterval(()=>setElapsed(e=>e+1),1000);
+    }else clearInterval(timerRef.current);
+    return()=>clearInterval(timerRef.current);
+  },[screen,loading,sel]);
+
+  useEffect(()=>{setSelSubj(new Set());},[step]);
+
+  const effectiveKey=userApiKey||null; // null means "use server key"
+
+  async function genQ(stepVal,subsArr,diffVal){
+    setLoading(true);setErr(null);setSel(null);setElapsed(0);setQ(null);
+    const sub=subsArr[Math.floor(Math.random()*subsArr.length)];
+    const body={step:stepVal,subject:sub,difficulty:diffVal};
+    if(effectiveKey)body.apiKey=effectiveKey;
+    try{
+      const res=await fetch(`${API_BASE}/api/question`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const data=await res.json();
+      if(!res.ok){
+        if(data.error==="no_key"||data.error==="invalid_key"){
+          setShowKeyPanel(true);setKeyRequired(true);
+          setErr(data.message||"API key needed.");
+          return;
+        }
+        throw new Error(data.error||`HTTP ${res.status}`);
+      }
+      setQ(data);
+    }catch(e){setErr(e.message||"Failed to generate question. Retry.");}
+    finally{setLoading(false);}
+  }
+
+  function startQuiz(){
+    const subs=selSubj.size?[...selSubj]:cfg.subjects;
+    setQIdx(0);setSession([]);setResults([]);setScreen("quiz");
+    genQ(step,subs,diff);
+  }
+
+  function handleAnswer(letter){if(sel||loading||!q)return;setSel(letter);}
+
+  function handleNext(){
+    const entry={q,sel,ok:sel===q.correct,t:elapsed};
+    const newSess=[...session,entry];
+    if(qIdx+1>=qTotal){
+      setResults(newSess);setSession(newSess);
+      saveSession(newSess);
+      setReviewMode(false);setReviewIdx(0);setScreen("results");
+    }else{
+      setSession(newSess);setQIdx(i=>i+1);
+      const subs=selSubj.size?[...selSubj]:cfg.subjects;
+      genQ(step,subs,diff);
+    }
+  }
+
+  async function saveSession(sess){
+    try{
+      const score=sess.filter(e=>e.ok).length;
+      const avgTime=Math.round(sess.reduce((a,e)=>a+e.t,0)/sess.length);
+      const breakdown=sess.reduce((a,e)=>{const s=e.q.subject;if(!a[s])a[s]={correct:0,total:0};a[s].total++;if(e.ok)a[s].correct++;return a;},{});
+      await fetch(`${API_BASE}/api/session`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({step,difficulty:diff,score,total:sess.length,avgTime,breakdown})});
+    }catch{}
+  }
+
+  // Key status indicator for header
+  const keyStatus=userApiKey?"user":hasServerKey?"server":hasServerKey===null?"unknown":"none";
+  const keyBadge={
+    user:  {bg:"#f0fdf4",color:"#166534",text:"Your key"},
+    server:{bg:"#eff6ff",color:"#1e40af",text:"Shared key"},
+    unknown:{bg:"#f3f4f6",color:"#6b7280",text:"Checking..."},
+    none:  {bg:"#fef3c7",color:"#92400e",text:"No key set"},
+  }[keyStatus];
+
+  // ── Config ──────────────────────────────────────────────────────────────
+  if(screen==="config"){
+    return(
+      <div style={{background:"#f5f6f8",minHeight:"100vh",padding:"24px 16px 60px"}}>
+        <div style={{maxWidth:640,margin:"0 auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,letterSpacing:".1em",color:"#9ca3af",textTransform:"uppercase",marginBottom:4}}>AI-Powered · All Three Steps</div>
+              <h1 style={{fontFamily:"'Lora',serif",fontSize:24,fontWeight:500,color:"#111827",letterSpacing:"-.02em"}}>USMLE Exam Prep</h1>
+            </div>
+            <button onClick={()=>setShowKeyPanel(s=>!s)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:999,background:keyBadge.bg,border:"none",fontSize:12,fontWeight:500,color:keyBadge.color,marginTop:4}}>
+              🔑 {keyBadge.text}
+            </button>
+          </div>
+
+          {showKeyPanel&&(
+            <ApiKeyPanel
+              onClose={()=>setShowKeyPanel(false)}
+              onSave={k=>{setUserApiKey(k);if(k)setKeyRequired(false);}}
+              currentKey={userApiKey}
+              hasServerKey={hasServerKey}
+            />
+          )}
+
+          {keyRequired&&!showKeyPanel&&!userApiKey&&(
+            <div style={{background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:12,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,color:"#92400e"}}>API key required</div>
+                <div style={{fontSize:12,color:"#92400e",marginTop:2}}>No shared key is configured. Add your own Anthropic key to use the app.</div>
+              </div>
+              <button onClick={()=>setShowKeyPanel(true)} style={{flexShrink:0,padding:"7px 14px",background:"#f59e0b",color:"#fff",border:"none",borderRadius:8,fontSize:12,fontWeight:600,marginLeft:12}}>Add key →</button>
+            </div>
+          )}
+
+          <div style={{marginBottom:18}}>
+            <div style={{fontSize:11,fontWeight:600,letterSpacing:".08em",color:"#6b7280",textTransform:"uppercase",marginBottom:10}}>Select Step</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+              {Object.entries(STEPS).map(([k,v])=>(
+                <button key={k} onClick={()=>setStep(k)} style={{padding:"14px 8px",borderRadius:14,border:`2px solid ${step===k?v.accent:"#e5e7eb"}`,background:step===k?v.muted:"#fff",textAlign:"left",transition:"all .15s"}}>
+                  <div style={{fontSize:14,fontWeight:700,color:step===k?v.accent:"#374151",marginBottom:2}}>{k}</div>
+                  <div style={{fontSize:11,color:"#9ca3af"}}>{v.tag}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{marginBottom:18}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <div style={{fontSize:11,fontWeight:600,letterSpacing:".08em",color:"#6b7280",textTransform:"uppercase"}}>
+                Subjects {selSubj.size===0?"· All":"· "+selSubj.size+" selected"}
+              </div>
+              {selSubj.size>0&&<button onClick={()=>setSelSubj(new Set())} style={{fontSize:12,color:cfg.accent,background:"none",border:"none",padding:0,fontWeight:500}}>Clear</button>}
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+              {cfg.subjects.map(s=>{const on=selSubj.has(s);return(
+                <button key={s} onClick={()=>setSelSubj(p=>{const n=new Set(p);n.has(s)?n.delete(s):n.add(s);return n;})} style={{padding:"5px 13px",borderRadius:999,fontSize:12,fontWeight:on?500:400,border:`1.5px solid ${on?cfg.accent:"#e5e7eb"}`,background:on?cfg.muted:"#fff",color:on?cfg.accent:"#6b7280"}}>{s}</button>
+              );})}
+            </div>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:22}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,letterSpacing:".08em",color:"#6b7280",textTransform:"uppercase",marginBottom:10}}>Difficulty</div>
+              <div style={{display:"flex",gap:5}}>
+                {["Mixed","Easy","Medium","Hard"].map(d=>{const on=diff===d;return(
+                  <button key={d} onClick={()=>setDiff(d)} style={{flex:1,padding:"8px 2px",borderRadius:8,fontSize:11,fontWeight:on?600:400,border:`1.5px solid ${on?cfg.accent:"#e5e7eb"}`,background:on?cfg.muted:"#fff",color:on?cfg.accent:"#6b7280"}}>{d}</button>
+                );})}
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,letterSpacing:".08em",color:"#6b7280",textTransform:"uppercase",marginBottom:10}}>Questions</div>
+              <div style={{display:"flex",gap:5}}>
+                {[5,10,20].map(n=>{const on=qTotal===n;return(
+                  <button key={n} onClick={()=>setQTotal(n)} style={{flex:1,padding:"8px 2px",borderRadius:8,fontSize:14,fontWeight:on?700:400,border:`1.5px solid ${on?cfg.accent:"#e5e7eb"}`,background:on?cfg.muted:"#fff",color:on?cfg.accent:"#6b7280"}}>{n}</button>
+                );})}
+              </div>
+            </div>
+          </div>
+
+          <button onClick={startQuiz} disabled={keyRequired&&!userApiKey} style={{width:"100%",padding:"14px",background:(keyRequired&&!userApiKey)?"#d1d5db":cfg.accent,color:"#fff",border:"none",borderRadius:14,fontSize:15,fontWeight:700,letterSpacing:"-.01em",cursor:(keyRequired&&!userApiKey)?"not-allowed":"pointer"}}>
+            {keyRequired&&!userApiKey?"Add API key to start":"Start "+step+" · "+qTotal+" Questions →"}
+          </button>
+          <div style={{textAlign:"center",marginTop:10,fontSize:11,color:"#bbb"}}>Powered by Cloudflare Workers + Anthropic Claude</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Quiz ─────────────────────────────────────────────────────────────────
+  if(screen==="quiz"){
+    const scoreCount=session.filter(e=>e.ok).length;
+    const pctDone=Math.round(qIdx/qTotal*100);
+    return(
+      <div style={{background:"#f5f6f8",minHeight:"100vh",padding:"18px 16px 60px"}}>
+        <div style={{maxWidth:640,margin:"0 auto"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <button onClick={()=>setScreen("config")} style={{background:"none",border:"none",color:"#9ca3af",fontSize:18,padding:0,lineHeight:1}}>←</button>
+              <span style={{display:"inline-flex",padding:"2px 10px",borderRadius:999,background:cfg.muted,color:cfg.accent,fontSize:11,fontWeight:600}}>{step}</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:14}}>
+              {!loading&&sel===null&&q&&<span style={{fontSize:12,color:"#6b7280",fontVariantNumeric:"tabular-nums"}}>{fmt(elapsed)}</span>}
+              <span style={{fontSize:13,fontWeight:600,color:"#374151"}}>{scoreCount}/{qIdx} correct</span>
+              <span style={{fontSize:12,color:"#9ca3af"}}>{qIdx+1}/{qTotal}</span>
+            </div>
+          </div>
+          <div style={{height:4,background:"#e5e7eb",borderRadius:999,marginBottom:18,overflow:"hidden"}}>
+            <div style={{height:"100%",width:pctDone+"%",background:cfg.accent,borderRadius:999,transition:"width .4s ease"}}/>
+          </div>
+
+          {loading&&(
+            <div className="fade" style={{background:"#fff",borderRadius:16,border:"1px solid #f0f0ee",padding:"60px 32px",textAlign:"center"}}>
+              <div className="spin" style={{width:34,height:34,border:`3px solid ${cfg.lite}`,borderTopColor:cfg.accent,borderRadius:"50%",margin:"0 auto 14px"}}/>
+              <div style={{fontSize:14,color:"#6b7280"}}>Generating your {step} question…</div>
+            </div>
+          )}
+
+          {err&&!loading&&(
+            <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:14,padding:20,textAlign:"center"}}>
+              <div style={{color:"#b91c1c",fontSize:14,marginBottom:12}}>{err}</div>
+              <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+                <button onClick={()=>{setShowKeyPanel(true);setScreen("config");}} style={{padding:"8px 16px",background:"#fff",color:"#374151",border:"1px solid #e5e7eb",borderRadius:8,fontSize:13,fontWeight:500}}>API key settings</button>
+                <button onClick={()=>{const subs=selSubj.size?[...selSubj]:cfg.subjects;genQ(step,subs,diff);}} style={{padding:"8px 16px",background:cfg.accent,color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:600}}>Retry</button>
+              </div>
+            </div>
+          )}
+
+          {showKeyPanel&&screen==="quiz"&&(
+            <ApiKeyPanel onClose={()=>setShowKeyPanel(false)} onSave={k=>{setUserApiKey(k);if(k){setShowKeyPanel(false);const subs=selSubj.size?[...selSubj]:cfg.subjects;genQ(step,subs,diff);}}} currentKey={userApiKey} hasServerKey={hasServerKey}/>
+          )}
+
+          {q&&!loading&&(
+            <div className="fade">
+              <div style={{background:"#fff",borderRadius:16,border:"1px solid #f0f0ee",padding:"22px 24px",marginBottom:12,boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
+                <div style={{display:"flex",gap:8,marginBottom:12}}>
+                  <span style={{fontSize:10,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:cfg.accent,background:cfg.muted,padding:"3px 9px",borderRadius:999}}>{q.subject}</span>
+                  <span style={{fontSize:10,color:"#9ca3af"}}>{q.qType} · {diff}</span>
+                  {q._cached&&<span style={{fontSize:10,color:"#d1d5db"}}>cached</span>}
+                </div>
+                <p style={{fontFamily:"'Lora',serif",fontSize:14,lineHeight:1.8,color:"#1f2937",margin:0}}>{q.stem}</p>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:14}}>
+                {Letters.map(letter=>{
+                  const isSel=sel===letter,isCorr=letter===q.correct,rev=sel!==null;
+                  let bg="#fff",border="1px solid #e5e7eb",col="#374151",lwBg="#f3f4f6",lwCol="#6b7280";
+                  if(rev){if(isCorr){bg="#f0fdf4";border="1.5px solid #86efac";col="#166534";lwBg="#22c55e";lwCol="#fff";}
+                  else if(isSel){bg="#fef2f2";border="1.5px solid #fca5a5";col="#991b1b";lwBg="#ef4444";lwCol="#fff";}
+                  else{bg="#fafafa";col="#9ca3af";border="1px solid #f0f0f0";}}
+                  else if(isSel){bg=cfg.muted;border=`1.5px solid ${cfg.accent}`;col=cfg.accent;lwBg=cfg.accent;lwCol="#fff";}
+                  return(
+                    <button key={letter} onClick={()=>handleAnswer(letter)} disabled={!!sel} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"12px 14px",borderRadius:10,border,background:bg,cursor:sel?"default":"pointer",textAlign:"left",width:"100%",transition:"all .12s"}}>
+                      <span style={{flexShrink:0,width:22,height:22,borderRadius:"50%",background:lwBg,color:lwCol,fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",marginTop:1}}>{letter}</span>
+                      <span style={{fontSize:13,lineHeight:1.55,color:col}}>{q.options[letter]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {sel&&(
+                <div className="fade" style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:14,padding:"18px 20px",marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                    <span style={{fontSize:13,fontWeight:700,color:sel===q.correct?"#166534":"#991b1b"}}>{sel===q.correct?"✓ Correct":"✗ Incorrect"}</span>
+                    <span style={{fontSize:11,color:"#9ca3af"}}>· {fmt(elapsed)}</span>
+                  </div>
+                  <div style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 14px",marginBottom:12}}>
+                    <span style={{fontSize:10,fontWeight:700,letterSpacing:".07em",textTransform:"uppercase",color:"#6b7280"}}>Key concept  </span>
+                    <span style={{fontSize:13,color:"#1f2937",lineHeight:1.5}}>{q.keyPoint}</span>
+                  </div>
+                  <p style={{fontSize:13,lineHeight:1.72,color:"#374151",margin:0}}>{q.explanation}</p>
+                </div>
+              )}
+              {sel&&<button onClick={handleNext} style={{width:"100%",padding:"13px",background:cfg.accent,color:"#fff",border:"none",borderRadius:12,fontSize:14,fontWeight:700,letterSpacing:"-.01em"}}>{qIdx+1<qTotal?"Next question →":"See results →"}</button>}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Results ───────────────────────────────────────────────────────────────
+  if(screen==="results"){
+    const total=results.length,correct=results.filter(e=>e.ok).length;
+    const pct=total?Math.round(correct/total*100):0;
+    const grade=pct>=90?"Excellent":pct>=75?"Strong":pct>=60?"Passing":"Needs Work";
+    const gColor=pct>=90?"#059669":pct>=75?"#1d4ed8":pct>=60?"#d97706":"#dc2626";
+    const avgT=total?Math.round(results.reduce((a,e)=>a+e.t,0)/total):0;
+    const bySubj=results.reduce((a,e)=>{const s=e.q.subject;if(!a[s])a[s]={c:0,t:0};a[s].t++;if(e.ok)a[s].c++;return a;},{});
+
+    if(reviewMode){
+      const entry=results[reviewIdx];
+      return(
+        <div style={{background:"#f5f6f8",minHeight:"100vh",padding:"18px 16px 60px"}}>
+          <div style={{maxWidth:640,margin:"0 auto"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+              <button onClick={()=>setReviewMode(false)} style={{background:"none",border:"none",color:"#6b7280",fontSize:13,fontWeight:500}}>← Results</button>
+              <span style={{fontSize:12,color:"#9ca3af"}}>Q{reviewIdx+1}/{results.length}</span>
+            </div>
+            <div style={{display:"flex",gap:5,marginBottom:18,overflowX:"auto",paddingBottom:4}}>
+              {results.map((e,i)=>(<button key={i} onClick={()=>setReviewIdx(i)} style={{flexShrink:0,width:30,height:30,borderRadius:999,border:"none",background:i===reviewIdx?(e.ok?"#16a34a":"#dc2626"):e.ok?"#dcfce7":"#fee2e2",color:i===reviewIdx?"#fff":e.ok?"#166534":"#991b1b",fontSize:10,fontWeight:700}}>Q{i+1}</button>))}
+            </div>
+            <div style={{background:"#fff",borderRadius:16,border:"1px solid #f0f0ee",padding:"22px 24px",marginBottom:12}}>
+              <span style={{fontSize:10,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:cfg.accent,background:cfg.muted,padding:"3px 9px",borderRadius:999,display:"inline-block",marginBottom:12}}>{entry.q.subject}</span>
+              <p style={{fontFamily:"'Lora',serif",fontSize:14,lineHeight:1.8,color:"#1f2937",margin:0}}>{entry.q.stem}</p>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:14}}>
+              {Letters.map(letter=>{
+                const isCorr=letter===entry.q.correct,isSel=letter===entry.sel;
+                let bg="#fff",border="1px solid #e5e7eb",col="#374151",lwBg="#f3f4f6",lwCol="#6b7280";
+                if(isCorr){bg="#f0fdf4";border="1.5px solid #86efac";col="#166534";lwBg="#22c55e";lwCol="#fff";}
+                else if(isSel){bg="#fef2f2";border="1.5px solid #fca5a5";col="#991b1b";lwBg="#ef4444";lwCol="#fff";}
+                return(<div key={letter} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"12px 14px",borderRadius:10,border,background:bg}}>
+                  <span style={{flexShrink:0,width:22,height:22,borderRadius:"50%",background:lwBg,color:lwCol,fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",marginTop:1}}>{letter}</span>
+                  <span style={{fontSize:13,lineHeight:1.55,color:col}}>{entry.q.options[letter]}{isCorr?" ✓":""}{isSel&&!isCorr?" ← your answer":""}</span>
+                </div>);
+              })}
+            </div>
+            <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:14,padding:"18px 20px",marginBottom:14}}>
+              <div style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 14px",marginBottom:10}}>
+                <span style={{fontSize:10,fontWeight:700,letterSpacing:".07em",textTransform:"uppercase",color:"#6b7280"}}>Key concept  </span>
+                <span style={{fontSize:13,color:"#1f2937"}}>{entry.q.keyPoint}</span>
+              </div>
+              <p style={{fontSize:13,lineHeight:1.72,color:"#374151",margin:0}}>{entry.q.explanation}</p>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              {reviewIdx>0&&<button onClick={()=>setReviewIdx(i=>i-1)} style={{flex:1,padding:"11px",background:"#fff",color:"#374151",border:"1px solid #e5e7eb",borderRadius:12,fontSize:13,fontWeight:600}}>← Prev</button>}
+              {reviewIdx<results.length-1&&<button onClick={()=>setReviewIdx(i=>i+1)} style={{flex:1,padding:"11px",background:cfg.accent,color:"#fff",border:"none",borderRadius:12,fontSize:13,fontWeight:600}}>Next →</button>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return(
+      <div style={{background:"#f5f6f8",minHeight:"100vh",padding:"28px 16px 60px"}}>
+        <div style={{maxWidth:640,margin:"0 auto"}}>
+          <div className="fade" style={{background:"#fff",borderRadius:20,border:"1px solid #f0f0ee",padding:"32px 28px",textAlign:"center",marginBottom:14,boxShadow:"0 2px 10px rgba(0,0,0,.06)"}}>
+            <div style={{fontSize:11,fontWeight:600,letterSpacing:".1em",color:"#9ca3af",textTransform:"uppercase",marginBottom:6}}>{step} · {diff}</div>
+            <div style={{fontFamily:"'Lora',serif",fontSize:68,fontWeight:500,color:"#111827",lineHeight:1,marginBottom:4}}>{correct}<span style={{fontSize:36,color:"#d1d5db"}}>/{total}</span></div>
+            <div style={{fontSize:13,color:"#9ca3af",marginBottom:16}}>questions correct</div>
+            <div style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px",background:gColor+"15",borderRadius:999,marginBottom:20}}>
+              <span style={{fontSize:15,fontWeight:700,color:gColor}}>{grade}</span>
+              <span style={{color:gColor}}>·</span>
+              <span style={{fontSize:15,fontWeight:700,color:gColor}}>{pct}%</span>
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6,justifyContent:"center",marginBottom:20}}>
+              {results.map((e,i)=>(<div key={i} style={{width:26,height:26,borderRadius:"50%",background:e.ok?"#22c55e":"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff"}}>Q{i+1}</div>))}
+            </div>
+            <div style={{display:"flex",borderTop:"1px solid #f0f0f0",paddingTop:16}}>
+              {[["Avg time",fmt(avgT)],["Difficulty",diff],["Step",step.replace(" ","")]].map(([l,v],i,arr)=>(
+                <div key={l} style={{flex:1,textAlign:"center",borderRight:i<arr.length-1?"1px solid #f0f0f0":"none"}}>
+                  <div style={{fontSize:15,fontWeight:700,color:"#374151"}}>{v}</div>
+                  <div style={{fontSize:10,color:"#9ca3af",marginTop:2}}>{l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {Object.keys(bySubj).length>1&&(
+            <div style={{background:"#fff",borderRadius:16,border:"1px solid #f0f0ee",padding:"18px 22px",marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:600,letterSpacing:".08em",color:"#6b7280",textTransform:"uppercase",marginBottom:14}}>Subject breakdown</div>
+              {Object.entries(bySubj).sort((a,b)=>b[1].c/b[1].t-a[1].c/a[1].t).map(([sub,st])=>{
+                const p=Math.round(st.c/st.t*100);
+                return(<div key={sub} style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+                  <div style={{fontSize:12,color:"#374151",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</div>
+                  <div style={{width:90,height:5,background:"#f0f0f0",borderRadius:999,flexShrink:0,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:p+"%",background:p>=70?"#22c55e":p>=50?"#f59e0b":"#ef4444",borderRadius:999}}/>
+                  </div>
+                  <div style={{fontSize:11,fontWeight:600,color:"#374151",width:32,textAlign:"right",flexShrink:0}}>{st.c}/{st.t}</div>
+                </div>);
+              })}
+            </div>
+          )}
+          <div style={{display:"flex",flexDirection:"column",gap:9}}>
+            <button onClick={()=>setReviewMode(true)} style={{width:"100%",padding:"12px",background:"#fff",color:"#374151",border:"1px solid #e5e7eb",borderRadius:12,fontSize:14,fontWeight:600}}>Review questions &amp; explanations</button>
+            <button onClick={startQuiz} style={{width:"100%",padding:"13px",background:cfg.accent,color:"#fff",border:"none",borderRadius:12,fontSize:14,fontWeight:700}}>New session →</button>
+            <button onClick={()=>setScreen("config")} style={{width:"100%",padding:"11px",background:"#f3f4f6",color:"#6b7280",border:"none",borderRadius:12,fontSize:13}}>Change settings</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
+ReactDOM.render(React.createElement(App),document.getElementById("root"));
+</script>
+</body>
+</html>
