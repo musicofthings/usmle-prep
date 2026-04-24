@@ -112,7 +112,7 @@ function ApiKeyPanel({onClose,onSave,currentKey,hasServerKey}){
 }
 
 // ── Main App ────────────────────────────────────────────────────────────────
-export default function App(){
+function App(){
   const[screen,setScreen]=useState("config");
   const[step,setStep]=useState("Step 1");
   const[selSubj,setSelSubj]=useState(new Set());
