@@ -1,17 +1,3 @@
-# ═══════════════════════════════════════════════════════════════════════════
-#  USMLE AI Exam Prep — GitHub Actions CI/CD
-#
-#  GitHub Secrets required (Settings → Secrets → Actions):
-#    CLOUDFLARE_API_TOKEN   — CF dashboard → My Profile → API Tokens
-#                             Template: "Edit Cloudflare Workers"
-#                             Extra permissions needed: D1:Edit, Pages:Edit
-#    CLOUDFLARE_ACCOUNT_ID  — CF dashboard right sidebar
-#
-#  NOTE: ANTHROPIC_API_KEY is NOT a GitHub secret.
-#  Set it in Cloudflare dashboard:
-#    Workers & Pages → usmle-question-api → Settings → Variables and Secrets
-# ═══════════════════════════════════════════════════════════════════════════
-
 name: Deploy to Cloudflare
 
 on:
@@ -44,99 +30,58 @@ jobs:
       - name: Install Wrangler
         run: npm install -g wrangler@latest --quiet
 
-      # ── KV namespace (idempotent) ────────────────────────────────────────
       - name: Create KV namespace
         id: kv
         run: |
-          # New wrangler syntax: "kv namespace" not "kv:namespace"
           OUTPUT=$(wrangler kv namespace create QUESTION_CACHE 2>&1 || true)
           echo "$OUTPUT"
-
           if echo "$OUTPUT" | grep -qi "already exists"; then
-            KV_ID=$(wrangler kv namespace list --json 2>/dev/null | python3 -c "
-import sys,json
-try:
-  d=json.load(sys.stdin)
-  ns=[x for x in d if 'QUESTION_CACHE' in x.get('title','')]
-  print(ns[0]['id'] if ns else '')
-except: pass
-" 2>/dev/null || echo "")
+            KV_ID=$(wrangler kv namespace list --json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); ns=[x for x in d if 'QUESTION_CACHE' in x.get('title','')]; print(ns[0]['id'] if ns else '')" 2>/dev/null || echo "")
           else
             KV_ID=$(echo "$OUTPUT" | grep -oE '"id":\s*"[a-f0-9]{32}"' | grep -oE '[a-f0-9]{32}' | head -1 || echo "")
           fi
-
-          if [ -z "$KV_ID" ]; then
-            echo "ERROR: Could not parse KV namespace ID"
-            exit 1
-          fi
-
-          grep -q "REPLACE_WITH_YOUR_KV_NAMESPACE_ID" wrangler.toml && \
-            sed -i "s/REPLACE_WITH_YOUR_KV_NAMESPACE_ID/$KV_ID/" wrangler.toml || true
-
+          if [ -z "$KV_ID" ]; then echo "ERROR: Could not parse KV namespace ID" && exit 1; fi
+          grep -q "REPLACE_WITH_YOUR_KV_NAMESPACE_ID" wrangler.toml && sed -i "s/REPLACE_WITH_YOUR_KV_NAMESPACE_ID/$KV_ID/" wrangler.toml || true
           echo "kv_id=$KV_ID" >> $GITHUB_OUTPUT
-          echo "✓ KV: $KV_ID"
+          echo "KV: $KV_ID"
 
-      # ── D1 database (idempotent) ─────────────────────────────────────────
       - name: Create D1 database
         id: d1
         run: |
           OUTPUT=$(wrangler d1 create usmle-sessions 2>&1 || true)
           echo "$OUTPUT"
-
           if echo "$OUTPUT" | grep -qi "already exists"; then
-            D1_ID=$(wrangler d1 list 2>/dev/null | grep -A5 "usmle-sessions" | \
-              grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1 || echo "")
+            D1_ID=$(wrangler d1 list 2>/dev/null | grep -A5 "usmle-sessions" | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1 || echo "")
           else
-            D1_ID=$(echo "$OUTPUT" | \
-              grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1 || echo "")
+            D1_ID=$(echo "$OUTPUT" | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1 || echo "")
           fi
-
-          if [ -z "$D1_ID" ]; then
-            echo "ERROR: Could not parse D1 database ID"
-            exit 1
-          fi
-
-          grep -q "REPLACE_WITH_YOUR_D1_DATABASE_ID" wrangler.toml && \
-            sed -i "s/REPLACE_WITH_YOUR_D1_DATABASE_ID/$D1_ID/" wrangler.toml || true
-
+          if [ -z "$D1_ID" ]; then echo "ERROR: Could not parse D1 database ID" && exit 1; fi
+          grep -q "REPLACE_WITH_YOUR_D1_DATABASE_ID" wrangler.toml && sed -i "s/REPLACE_WITH_YOUR_D1_DATABASE_ID/$D1_ID/" wrangler.toml || true
           echo "d1_id=$D1_ID" >> $GITHUB_OUTPUT
-          echo "✓ D1: $D1_ID"
+          echo "D1: $D1_ID"
 
-      # ── Apply schema ─────────────────────────────────────────────────────
       - name: Apply D1 schema
         run: |
           wrangler d1 execute usmle-sessions --file schema.sql --remote 2>&1 | tail -5
-          echo "✓ Schema applied"
+          echo "Schema applied"
 
-      # ── CORS secret (wildcard until Pages URL is known) ──────────────────
       - name: Set ALLOWED_ORIGIN wildcard
-        run: |
-          printf '*' | wrangler secret put ALLOWED_ORIGIN
-          echo "✓ ALLOWED_ORIGIN=*"
+        run: printf '*' | wrangler secret put ALLOWED_ORIGIN
 
-      # ── Deploy Worker ────────────────────────────────────────────────────
       - name: Deploy Worker
         id: worker
         run: |
           OUTPUT=$(wrangler deploy 2>&1)
           echo "$OUTPUT"
-
           WORKER_URL=$(echo "$OUTPUT" | grep -oE 'https://[a-zA-Z0-9._-]+\.workers\.dev' | head -1 || echo "")
           echo "worker_url=$WORKER_URL" >> $GITHUB_OUTPUT
-          echo "✓ Worker: $WORKER_URL"
+          echo "Worker: $WORKER_URL"
 
-      # ── Patch frontend API_BASE ───────────────────────────────────────────
       - name: Patch frontend API URL
         run: |
           WORKER_URL="${{ steps.worker.outputs.worker_url }}"
-          if [ -n "$WORKER_URL" ]; then
-            sed -i "s|https://usmle-question-api.YOUR_SUBDOMAIN.workers.dev|$WORKER_URL|g" frontend/index.html
-            echo "✓ Patched: $WORKER_URL"
-          else
-            echo "WARNING: WORKER_URL empty, skipping patch"
-          fi
+          [ -n "$WORKER_URL" ] && sed -i "s|https://usmle-question-api.YOUR_SUBDOMAIN.workers.dev|$WORKER_URL|g" frontend/index.html && echo "Patched: $WORKER_URL" || echo "WARNING: WORKER_URL empty"
 
-      # ── Deploy Pages ─────────────────────────────────────────────────────
       - name: Deploy to Cloudflare Pages
         id: pages
         uses: cloudflare/pages-action@v1
@@ -147,24 +92,21 @@ except: pass
           directory: frontend
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── Tighten CORS to Pages domain ──────────────────────────────────────
       - name: Lock ALLOWED_ORIGIN to Pages domain
         run: |
           PAGES_URL="${{ steps.pages.outputs.url }}"
           [ -z "$PAGES_URL" ] && PAGES_URL="https://usmle-prep.pages.dev"
           printf '%s' "$PAGES_URL" | wrangler secret put ALLOWED_ORIGIN
-          echo "✓ CORS locked to: $PAGES_URL"
+          echo "CORS locked to: $PAGES_URL"
 
-      # ── Summary ───────────────────────────────────────────────────────────
       - name: Summary
         run: |
-          echo "╔══════════════════════════════════════════════════╗"
-          echo "║           Deployment complete! 🎉                ║"
-          echo "╠══════════════════════════════════════════════════╣"
-          echo "  Frontend : ${{ steps.pages.outputs.url }}"
-          echo "  Worker   : ${{ steps.worker.outputs.worker_url }}"
-          echo "╠══════════════════════════════════════════════════╣"
-          echo "  NEXT: Set ANTHROPIC_API_KEY in Cloudflare"
-          echo "  Workers & Pages → usmle-question-api"
-          echo "  → Settings → Variables and Secrets → Add secret"
-          echo "╚══════════════════════════════════════════════════╝"
+          echo "================================================"
+          echo " Deployment complete!"
+          echo " Frontend : ${{ steps.pages.outputs.url }}"
+          echo " Worker   : ${{ steps.worker.outputs.worker_url }}"
+          echo "================================================"
+          echo " NEXT: Set ANTHROPIC_API_KEY in Cloudflare"
+          echo " Workers & Pages > usmle-question-api"
+          echo " > Settings > Variables and Secrets > Add secret"
+          echo "================================================"
